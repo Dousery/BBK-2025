@@ -44,7 +44,8 @@ async def startup() -> None:
             auto_commit_interval_ms=1000,
             session_timeout_ms=30000,
             heartbeat_interval_ms=10000,
-            max_poll_records=10
+            max_poll_records=10,
+            security_protocol="PLAINTEXT"
         )
         await kafka_consumer.start()
         print("✅ Kafka consumer started successfully")
@@ -52,7 +53,8 @@ async def startup() -> None:
         # Initialize producer for publishing notification events
         kafka_producer = AIOKafkaProducer(
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            security_protocol="PLAINTEXT"
         )
         await kafka_producer.start()
         print("✅ Kafka producer started successfully")

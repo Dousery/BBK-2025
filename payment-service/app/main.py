@@ -55,7 +55,8 @@ async def on_startup() -> None:
     try:
         kafka_producer = AIOKafkaProducer(
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            value_serializer=lambda v: json.dumps(v).encode("utf-8")
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            security_protocol="PLAINTEXT"
         )
         await kafka_producer.start()
         print("✅ Kafka producer started successfully")
