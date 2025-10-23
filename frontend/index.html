@@ -13,20 +13,18 @@
 <body class="bg-gray-100 min-h-screen">
     <div class="max-w-7xl mx-auto p-5">
         <div class="bg-white rounded-lg shadow-sm p-5 mb-5 flex justify-between items-center">
-            <h1 class="text-3xl font-bold text-gray-800">🛍️ Atlas E-commerce</h1>
+            <h1 class="text-3xl font-bold text-gray-800">Atlas E-commerce</h1>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-5">
-            <!-- Product Section -->
             <div class="lg:col-span-3 bg-white rounded-lg shadow-sm p-5">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-bold text-gray-800">🛒 Product Catalog</h2>
+                    <h2 class="text-xl font-bold text-gray-800">Product Catalog</h2>
                 </div>
                 <div id="productsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 </div>
             </div>
 
-            <!-- Basket Section -->
             <div class="bg-white rounded-lg shadow-sm p-5">
                 <h3 class="text-lg font-bold text-gray-800 mb-4">🛒 My Basket</h3>
                 <div id="basketItems" class="mb-4">
@@ -57,7 +55,6 @@
             </div>
         </div>
 
-        <!-- Notification Section -->
         <div class="bg-white rounded-lg shadow-sm p-5 mt-5">
             <h3 class="text-lg font-bold text-gray-800 mb-4">Notifications</h3>
             <div id="notificationsList">
@@ -70,7 +67,6 @@
     </div>
 
     <script>
-        // Microservice endpoints
         const PRODUCT_URL = 'http://localhost:8003';
         const BASKET_URL = 'http://localhost:8004';
         const PAYMENT_URL = 'http://localhost:8001';
@@ -80,7 +76,6 @@
         let products = [];
         let basket = { items: [], total: 0 };
 
-        // App initialization
         async function init() {
             await loadProducts();
             await loadBasket();
@@ -171,7 +166,7 @@
                     basket = basketData;
                     displayBasket();
                 } else {
-                    // Revert optimistic update on failure
+                    // Rollback for server failure
                     const existingItem = basket.items.find(item => item.productId === productId);
                     if (existingItem) {
                         if (existingItem.quantity > 1) {
@@ -190,7 +185,6 @@
             }
         }
 
-        // Loading user's basket
         async function loadBasket() {
             try {
                 const response = await fetch(`${BASKET_URL}/basket/${currentUserId}`);
@@ -296,7 +290,6 @@
                 showError(error.message || 'Payment failed. Please try again.');
                 addNotification('Payment failed', 'error');
             } finally {
-                // Re-enable checkout button
                 checkoutBtn.disabled = false;
                 checkoutBtn.innerHTML = 'CHECKOUT';
             }
@@ -327,7 +320,7 @@
             
             notificationsList.insertBefore(notification, notificationsList.firstChild);
             
-            // Showing only last 10 notifications
+            // Only last 10 notifications
             while (notificationsList.children.length > 10) {
                 notificationsList.removeChild(notificationsList.lastChild);
             }
@@ -340,7 +333,7 @@
                 loadProducts();
             }, 2000); 
 
-            // Tracking the user's tab activity
+            // User's tab activity
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) {
                     loadProducts();
@@ -348,7 +341,7 @@
             });
         }
 
-        // Initializing the app when page loads
+        // Initialize
         document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>

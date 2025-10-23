@@ -2,7 +2,6 @@ from typing import Dict, Any
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from sqlalchemy.orm import Session
 from models import Product, StockTransaction
 from database import get_db, create_tables
@@ -10,7 +9,6 @@ from database import get_db, create_tables
 APP_NAME = "product-service"
 app = FastAPI(title="Atlas Payment Modernization - Product Service")
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,10 +16,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Prometheus metrics
-requests_total = Counter("product_requests_total", "Total requests", ["endpoint"])
-request_latency = Histogram("product_request_latency_seconds", "Request latency seconds")
 
 @app.on_event("startup")
 async def startup():
@@ -33,14 +27,9 @@ async def startup():
 async def health() -> Dict[str, str]:
     return {"status": "ok", "service": APP_NAME}
 
-@app.get("/metrics")
-async def metrics() -> PlainTextResponse:
-    return PlainTextResponse(generate_latest().decode("utf-8"), media_type=CONTENT_TYPE_LATEST)
 
 @app.get("/products")
 async def get_products(db: Session = Depends(get_db)) -> JSONResponse:
-    with request_latency.time():
-        requests_total.labels(endpoint="/products").inc()
         
         products = db.query(Product).filter(Product.is_active == True).order_by(Product.id).all()
         products_data = []
@@ -69,8 +58,6 @@ async def get_products(db: Session = Depends(get_db)) -> JSONResponse:
 
 @app.get("/products/{product_id}")
 async def get_product(product_id: str, db: Session = Depends(get_db)) -> JSONResponse:
-    with request_latency.time():
-        requests_total.labels(endpoint="/products/{id}").inc()
         
         product = db.query(Product).filter(Product.id == product_id).first()
         
@@ -91,8 +78,6 @@ async def get_product(product_id: str, db: Session = Depends(get_db)) -> JSONRes
 
 @app.post("/products/check-stock")
 async def check_stock(request: Dict[str, Any], db: Session = Depends(get_db)) -> JSONResponse:
-    with request_latency.time():
-        requests_total.labels(endpoint="/products/check-stock").inc()
         
         items = request.get("items", [])
         insufficient_stock = []
@@ -128,8 +113,6 @@ async def check_stock(request: Dict[str, Any], db: Session = Depends(get_db)) ->
 @app.post("/products/update-stock")
 async def update_stock(request: Dict[str, Any], db: Session = Depends(get_db)) -> JSONResponse:
     """Update product stock after successful payment with concurrency control"""
-    with request_latency.time():
-        requests_total.labels(endpoint="/products/update-stock").inc()
         
         items = request.get("items", [])
         order_id = request.get("orderId")
@@ -201,8 +184,6 @@ async def update_stock(request: Dict[str, Any], db: Session = Depends(get_db)) -
 @app.get("/transactions")
 async def get_transactions(db: Session = Depends(get_db)) -> JSONResponse:
     """Get recent stock transactions"""
-    with request_latency.time():
-        requests_total.labels(endpoint="/transactions").inc()
         
         transactions = db.query(StockTransaction, Product.name).join(
             Product, StockTransaction.product_id == Product.id

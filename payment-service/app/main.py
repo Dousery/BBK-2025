@@ -9,7 +9,6 @@ import redis
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from aiokafka import AIOKafkaProducer
 
 APP_NAME = "payment-service"
@@ -19,7 +18,6 @@ KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "payment.completed")
 
 app = FastAPI(title="Atlas Payment Modernization - Payment Service")
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,10 +30,6 @@ http_client: httpx.AsyncClient | None = None
 kafka_producer: AIOKafkaProducer | None = None
 redis_client: redis.Redis | None = None
 
-# Prometheus metrics
-payments_total = Counter("payments_processed_total", "Total number of processed payments", ["status"])
-payment_latency = Histogram("payment_latency_seconds", "Payment processing latency in seconds", buckets=(0.05, 0.1, 0.2, 0.5, 1, 2, 5))
-inflight_requests = Gauge("payment_inflight_requests", "Number of in-flight /pay requests")
 
 @app.on_event("startup")
 async def on_startup() -> None:
@@ -46,9 +40,9 @@ async def on_startup() -> None:
     try:
         redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         redis_client.ping()  # Test connection
-        print("✅ Redis connected successfully")
+        print("Redis connected successfully")
     except Exception as e:
-        print(f"⚠️ Redis connection failed: {e}")
+        print(f"Redis connection failed: {e}")
         redis_client = None
     
     # Initialize Kafka
@@ -59,9 +53,9 @@ async def on_startup() -> None:
             security_protocol="PLAINTEXT"
         )
         await kafka_producer.start()
-        print("✅ Kafka producer started successfully")
+        print("Kafka producer started successfully")
     except Exception as e:
-        print(f"⚠️ Kafka connection failed: {e}")
+        print(f"Kafka connection failed: {e}")
         kafka_producer = None
 
 @app.on_event("shutdown")
@@ -74,11 +68,6 @@ async def on_shutdown() -> None:
 async def health() -> Dict[str, str]:
     return {"status": "ok", "service": APP_NAME}
 
-@app.get("/metrics")
-async def metrics() -> PlainTextResponse:
-    return PlainTextResponse(generate_latest().decode("utf-8"), media_type=CONTENT_TYPE_LATEST)
-
-# Rate limiting removed - no Redis dependency
 
 async def get_cart(user_id: str) -> Dict[str, Any]:
     global redis_client, http_client
@@ -128,16 +117,11 @@ async def pay(request: Request) -> JSONResponse:
     if not user_id:
         raise HTTPException(status_code=400, detail="userId is required")
 
-    # Rate limiting removed - no Redis dependency
-
-    inflight_requests.inc()
     try:
-        with payment_latency.time():
-            cart = await get_cart(user_id)
-            await asyncio.sleep(random.uniform(0.05, 0.3))
-            amount = simulate_payment_amount(cart)
-            txn_id = f"txn_{user_id}_{random.randint(10000, 99999)}"
-            payments_total.labels(status="success").inc()
+        cart = await get_cart(user_id)
+        await asyncio.sleep(random.uniform(0.05, 0.3))
+        amount = simulate_payment_amount(cart)
+        txn_id = f"txn_{user_id}_{random.randint(10000, 99999)}"
 
             message = {
                 "event": "payment.completed",
@@ -151,13 +135,10 @@ async def pay(request: Request) -> JSONResponse:
 
             if kafka_producer:
                 await kafka_producer.send_and_wait(KAFKA_TOPIC, message)
-                print("✅ Kafka event published:", message)
+                print("Kafka event published:", message)
             else:
-                print("⚠️ Kafka producer not available, payment processed without event")
+                print("Kafka producer not available, payment processed without event")
 
             return JSONResponse(message)
     except Exception as exc:
-        payments_total.labels(status="error").inc()
         raise HTTPException(status_code=500, detail=str(exc))
-    finally:
-        inflight_requests.dec()

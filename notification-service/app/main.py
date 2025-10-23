@@ -10,14 +10,13 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 
 APP_NAME = "notification-service"
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_BOOTSTRAP_SERVERS = os.getenv( "KAFKA_BOOTSTRAP_SERVERS","localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "payment.completed")
 KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "notification-service")
 NOTIFICATION_TOPIC = os.getenv("NOTIFICATION_TOPIC", "notification.successful")
 
 app = FastAPI(title="Atlas Payment Modernization - Notification Service")
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -48,7 +47,7 @@ async def startup() -> None:
             security_protocol="PLAINTEXT"
         )
         await kafka_consumer.start()
-        print("✅ Kafka consumer started successfully")
+        print("Kafka consumer started successfully")
         
         # Initialize producer for publishing notification events
         kafka_producer = AIOKafkaProducer(
@@ -57,23 +56,23 @@ async def startup() -> None:
             security_protocol="PLAINTEXT"
         )
         await kafka_producer.start()
-        print("✅ Kafka producer started successfully")
+        print("Kafka producer started successfully")
     except Exception as e:
-        print(f"⚠️ Kafka connection failed: {e}")
+        print(f"Kafka connection failed: {e}")
         kafka_consumer = None
         kafka_producer = None
     
     async def consume_messages():
         if not kafka_consumer:
-            print("⚠️ Kafka consumer not available, skipping message consumption")
+            print("Kafka consumer not available")
             return
         
-        print("🔄 Starting message consumption...")
+        print("Starting message consumption...")
         try:
             async for message in kafka_consumer:
                 try:
                     payload = message.value
-                    print(f"📨 Received message: {payload}")
+                    print(f"Received message: {payload}")
                     
                     user_id = payload.get("userId")
                     transaction_id = payload.get("transactionId")
@@ -81,15 +80,15 @@ async def startup() -> None:
                     currency = payload.get("currency")
                     items = payload.get("items", [])
                     
-                    print(f"📩 Processing payment notification for user {user_id}")
-                    print(f"🛒 Transaction {transaction_id}: {amount} {currency}")
-                    print(f"👤 User ID: {user_id}")
-                    print(f"💰 Payment Details: {amount} {currency} for user {user_id}")
+                    print(f"Processing payment notification for user {user_id}")
+                    print(f"Transaction {transaction_id}: {amount} {currency}")
+                    print(f"User ID: {user_id}")
+                    print(f"Payment Details: {amount} {currency} for user {user_id}")
                     
                     # Update stock in product service
                     try:
                         import httpx
-                        print(f"🛒 Items to update stock: {items}")
+                        print(f"Items to update stock: {items}")
                         
                         if items:
                             async with httpx.AsyncClient() as client:
@@ -102,13 +101,13 @@ async def startup() -> None:
                                     }
                                 )
                                 if stock_update_response.status_code == 200:
-                                    print("✅ Stock updated successfully")
+                                    print("Stock updated successfully")
                                 else:
-                                    print(f"⚠️ Stock update failed: {stock_update_response.status_code}")
+                                    print(f"Stock update failed: {stock_update_response.status_code}")
                         else:
-                            print("⚠️ No items found in payload for stock update")
+                            print("No items found in payload")
                     except Exception as e:
-                        print(f"⚠️ Stock update error: {e}")
+                        print(f"Stock update error: {e}")
                     
                     # Publish notification successful event
                     if kafka_producer:
@@ -122,13 +121,13 @@ async def startup() -> None:
                             "status": "notified"
                         }
                         await kafka_producer.send_and_wait(NOTIFICATION_TOPIC, notification_event)
-                        print(f"✅ Notification successful event published for transaction {transaction_id}")
+                        print(f"Notification successful event published for transaction {transaction_id}")
                         
                 except Exception as e:
-                    print(f"❌ Error processing notification: {e}")
+                    print(f"Error processing notification: {e}")
                     continue
         except Exception as e:
-            print(f"❌ Consumer error: {e}")
+            print(f"Consumer error: {e}")
 
     # Start consumer in background
     asyncio.create_task(consume_messages())
