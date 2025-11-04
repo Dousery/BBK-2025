@@ -3,7 +3,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
-from models import Product, StockTransaction
+from models import Product
 from database import get_db, create_tables
 
 APP_NAME = "product-service"
@@ -146,17 +146,8 @@ async def update_stock(request: Dict[str, Any], db: Session = Depends(get_db)) -
                     # Update stock atomically
                     product.stock -= quantity
                     
-                    print(f"📊 Stock update: {product_id} {old_stock} -> {product.stock}")
+                    print(f"Stock update: {product_id} {old_stock} -> {product.stock}")
                     
-                    # transaction record
-                    transaction = StockTransaction(
-                        product_id=product_id,
-                        transaction_type="sale",
-                        quantity=quantity,
-                        order_id=order_id,
-                        user_id=user_id
-                    )
-                    db.add(transaction)
                     
                     updated_products.append({
                         "productId": product_id,
@@ -181,28 +172,3 @@ async def update_stock(request: Dict[str, Any], db: Session = Depends(get_db)) -
             print(f"Stock update failed: {e}")
             raise HTTPException(status_code=500, detail=f"Stock update failed: {str(e)}")
 
-@app.get("/transactions")
-async def get_transactions(db: Session = Depends(get_db)) -> JSONResponse:
-    """Get recent stock transactions"""
-        
-        transactions = db.query(StockTransaction, Product.name).join(
-            Product, StockTransaction.product_id == Product.id
-        ).order_by(StockTransaction.created_at.desc()).limit(50).all()
-        
-        transactions_data = []
-        for transaction, product_name in transactions:
-            transactions_data.append({
-                "id": transaction.id,
-                "product_id": transaction.product_id,
-                "product_name": product_name,
-                "transaction_type": transaction.transaction_type,
-                "quantity": transaction.quantity,
-                "order_id": transaction.order_id,
-                "user_id": transaction.user_id,
-                "created_at": transaction.created_at.isoformat() if transaction.created_at else None
-            })
-        
-        return JSONResponse({
-            "transactions": transactions_data,
-            "total": len(transactions_data)
-        })

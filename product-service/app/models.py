@@ -18,13 +18,3 @@ class Product(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-class StockTransaction(Base):
-    __tablename__ = "stock_transactions"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    product_id = Column(String, nullable=False)
-    transaction_type = Column(String, nullable=False)  # sale, restock, adjustment
-    quantity = Column(Integer, nullable=False)
-    order_id = Column(String)
-    user_id = Column(String)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
