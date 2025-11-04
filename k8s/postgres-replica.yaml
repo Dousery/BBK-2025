@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-replica
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-replica
+  template:
+    metadata:
+      labels:
+        app: postgres-replica
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          envFrom:
+            - configMapRef:
+                name: postgres-config
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: PRIMARY_HOST
+              value: postgres-master
+          command:
+            - bash
+            - "-c"
+            - |
+              rm -rf /var/lib/postgresql/data/*
+              until pg_isready -h $PRIMARY_HOST -U $POSTGRES_USER; do
+                echo "Waiting for master..."
+                sleep 2
+              done
+              PGPASSWORD=$POSTGRES_PASSWORD pg_basebackup -h $PRIMARY_HOST -U $POSTGRES_USER -D /var/lib/postgresql/data -Fp -Xs -P -R
+              exec docker-entrypoint.sh postgres
+          ports:
+            - containerPort: 5432
