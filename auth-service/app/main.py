@@ -56,31 +56,60 @@ class TokenVerify(BaseModel):
 
 @app.on_event("startup")
 async def startup():
-    create_tables()
-    print("Database tables created")
+    import time
+    max_retries = 10
+    retry_delay = 2
+    
+    # Retry database connection
+    for attempt in range(max_retries):
+        try:
+            create_tables()
+            print("Database tables created")
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Database connection failed (attempt {attempt + 1}/{max_retries}): {e}")
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print(f"Failed to connect to database after {max_retries} attempts: {e}")
+                raise
     
     # Create default admin user if not exists
-    db_gen = get_db()
-    db = next(db_gen)
-    try:
-        admin = db.query(User).filter(User.username == "admin").first()
-        if not admin:
-            hashed_password = bcrypt.hashpw("admin123".encode('utf-8'), bcrypt.gensalt())
-            admin = User(
-                username="admin",
-                email="admin@atlas.com",
-                password_hash=hashed_password.decode('utf-8'),
-                full_name="Admin User",
-                is_active=True
-            )
-            db.add(admin)
-            db.commit()
-            print("Default admin user created (username: admin, password: admin123)")
-    except Exception as e:
-        print(f"Error creating default user: {e}")
-        db.rollback()
-    finally:
-        db.close()
+    for attempt in range(max_retries):
+        try:
+            db_gen = get_db()
+            db = next(db_gen)
+            try:
+                admin = db.query(User).filter(User.username == "admin").first()
+                if not admin:
+                    hashed_password = bcrypt.hashpw("admin123".encode('utf-8'), bcrypt.gensalt())
+                    admin = User(
+                        username="admin",
+                        email="admin@atlas.com",
+                        password_hash=hashed_password.decode('utf-8'),
+                        full_name="Admin User",
+                        is_active=True
+                    )
+                    db.add(admin)
+                    db.commit()
+                    print("Default admin user created (username: admin, password: admin123)")
+                break
+            except Exception as e:
+                print(f"Error creating default user: {e}")
+                db.rollback()
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    raise
+            finally:
+                db.close()
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Database operation failed (attempt {attempt + 1}/{max_retries}): {e}")
+                time.sleep(retry_delay)
+            else:
+                print(f"Failed to create default user after {max_retries} attempts: {e}")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
