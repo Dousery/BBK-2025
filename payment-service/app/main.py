@@ -2,19 +2,25 @@ import asyncio
 import os
 import random
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import httpx
 import redis
-from fastapi import FastAPI, HTTPException, Request
+import jwt
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from aiokafka import AIOKafkaProducer
 
 APP_NAME = "payment-service"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "payment.completed")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "secret-key-12345")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+
+security = HTTPBearer(auto_error=False)
 
 app = FastAPI(title="Atlas Payment Modernization - Payment Service")
 
@@ -64,6 +70,34 @@ async def on_shutdown() -> None:
     if http_client: await http_client.aclose()
     if kafka_producer: await kafka_producer.stop()
 
+def verify_token(token: str) -> Dict[str, Any]:
+    """Verify JWT token and return payload"""
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+def get_current_user_id(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> str:
+    """Get user_id from JWT token"""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    token = credentials.credentials
+    payload = verify_token(token)
+    user_id = payload.get("user_id")
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token: user_id not found")
+    
+    return user_id
+
+
 @app.get("/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok", "service": APP_NAME}
@@ -110,35 +144,35 @@ def simulate_payment_amount(cart: Dict[str, Any]) -> float:
     return round(total + random.uniform(0.0, 2.5), 2)
 
 @app.post("/pay")
-async def pay(request: Request) -> JSONResponse:
+async def pay(
+    request: Request,
+    user_id: str = Depends(get_current_user_id)
+) -> JSONResponse:
+    """Process payment - requires authentication"""
     global kafka_producer
-    payload = await request.json()
-    user_id = str(payload.get("userId"))
-    if not user_id:
-        raise HTTPException(status_code=400, detail="userId is required")
-
+    
     try:
         cart = await get_cart(user_id)
         await asyncio.sleep(random.uniform(0.05, 0.3))
         amount = simulate_payment_amount(cart)
         txn_id = f"txn_{user_id}_{random.randint(10000, 99999)}"
 
-            message = {
-                "event": "payment.completed",
-                "transactionId": txn_id,
-                "userId": user_id,
-                "amount": amount,
-                "currency": cart.get("currency", "USD"),
-                "status": "approved",
-                "items": cart.get("items", [])
-            }
+        message = {
+            "event": "payment.completed",
+            "transactionId": txn_id,
+            "userId": user_id,
+            "amount": amount,
+            "currency": cart.get("currency", "USD"),
+            "status": "approved",
+            "items": cart.get("items", [])
+        }
 
-            if kafka_producer:
-                await kafka_producer.send_and_wait(KAFKA_TOPIC, message)
-                print("Kafka event published:", message)
-            else:
-                print("Kafka producer not available, payment processed without event")
+        if kafka_producer:
+            await kafka_producer.send_and_wait(KAFKA_TOPIC, message)
+            print("Kafka event published:", message)
+        else:
+            print("Kafka producer not available, payment processed without event")
 
-            return JSONResponse(message)
+        return JSONResponse(message)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
