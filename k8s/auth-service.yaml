@@ -1,29 +1,26 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: product-service
+  name: auth-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: product-service
+      app: auth-service
   template:
     metadata:
       labels:
-        app: product-service
+        app: auth-service
     spec:
       containers:
-        - name: product-service
-          image: docker.io/library/product-service:local
+        - name: auth-service
+          image: docker.io/library/auth-service:local
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8003
+            - containerPort: 8005
           env:
             - name: POSTGRES_DB
-              valueFrom:
-                configMapKeyRef:
-                  name: postgres-config
-                  key: POSTGRES_DB
+              value: auth
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
@@ -36,10 +33,7 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: DATABASE_URL
               value: >-
-                postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres-master:5432/$(POSTGRES_DB)
-            - name: READ_REPLICA_URL
-              value: >-
-                postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres-replica:5432/$(POSTGRES_DB)
+                postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres-auth:5432/$(POSTGRES_DB)
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -47,16 +41,18 @@ spec:
                   key: JWT_SECRET_KEY
             - name: JWT_ALGORITHM
               value: "HS256"
+            - name: JWT_EXPIRATION_HOURS
+              value: "24"
           livenessProbe:
             httpGet:
               path: /health
-              port: 8003
+              port: 8005
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: 8003
+              port: 8005
             initialDelaySeconds: 10
             periodSeconds: 5
           resources:
@@ -70,12 +66,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: product-service
+  name: auth-service
 spec:
   type: NodePort
   selector:
-    app: product-service
+    app: auth-service
   ports:
-    - port: 8003
-      targetPort: 8003
-      nodePort: 30083
+    - port: 8005
+      targetPort: 8005
+      nodePort: 30085
+
