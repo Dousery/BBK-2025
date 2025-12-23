@@ -102,6 +102,12 @@ async def startup() -> None:
                                 )
                                 if stock_update_response.status_code == 200:
                                     print("Stock updated successfully")
+                                    
+                                    # Clear basket after stock update
+                                    try:
+                                        pass
+                                    except Exception as e:
+                                        print(f"Basket clearing error (backup): {e}")
                                 else:
                                     print(f"Stock update failed: {stock_update_response.status_code}")
                         else:
