@@ -173,6 +173,23 @@ async def pay(
         else:
             print("Kafka producer not available, payment processed without event")
 
+        # Clear basket after successful payment
+        try:
+            if http_client:
+                auth_header = request.headers.get("Authorization", "")
+                # Use direct service-to-service call (bypassing gateway for internal calls)
+                clear_response = await http_client.delete(
+                    f"http://basket-service:8004/basket",
+                    headers={"Authorization": auth_header},
+                    timeout=5.0
+                )
+                if clear_response.status_code == 200:
+                    print(f"Basket cleared for user {user_id}")
+                else:
+                    print(f"Failed to clear basket: {clear_response.status_code}")
+        except Exception as e:
+            print(f"Error clearing basket: {e}")
+
         return JSONResponse(message)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
