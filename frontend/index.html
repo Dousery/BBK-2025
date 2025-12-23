@@ -225,11 +225,12 @@
     </div>
 
     <script>
-        const AUTH_URL = 'http://localhost:8005';
-        const PRODUCT_URL = 'http://localhost:8003';
-        const BASKET_URL = 'http://localhost:8004';
-        const PAYMENT_URL = 'http://localhost:8001';
-        const NOTIFICATION_URL = 'http://localhost:8002';
+        const API_GATEWAY_URL = 'http://localhost:8000';
+        const AUTH_URL = `${API_GATEWAY_URL}/auth`;
+        const PRODUCT_URL = API_GATEWAY_URL; // /products/products -> /products
+        const BASKET_URL = API_GATEWAY_URL; // /basket/basket -> /basket
+        const PAYMENT_URL = API_GATEWAY_URL; // /pay/pay -> /pay
+        const NOTIFICATION_URL = 'http://localhost:8002'; // Notification service is not exposed through gateway yet
 
         let authToken = localStorage.getItem('authToken');
         let currentUser = null;
@@ -249,9 +250,7 @@
             if (authToken) {
                 // Verify token is still valid
                 fetch(`${AUTH_URL}/me`, {
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`
-                    }
+                    headers: getAuthHeaders()
                 })
                 .then(response => {
                     if (response.ok) {
@@ -398,7 +397,7 @@
 
         async function loadProducts() {
             try {
-                const response = await fetch(`${PRODUCT_URL}/products?t=${Date.now()}`, {
+                const response = await fetch(`${API_GATEWAY_URL}/products?t=${Date.now()}`, {
                     cache: 'no-cache',
                     headers: {
                         'Cache-Control': 'no-cache'
@@ -451,7 +450,7 @@
             }
 
             try {
-                const response = await fetch(`${BASKET_URL}/basket/add`, {
+                const response = await fetch(`${API_GATEWAY_URL}/basket/add`, {
                     method: 'POST',
                     headers: getAuthHeaders(),
                     body: JSON.stringify({
@@ -483,7 +482,7 @@
             if (!authToken) return;
             
             try {
-                const response = await fetch(`${BASKET_URL}/basket`, {
+                const response = await fetch(`${API_GATEWAY_URL}/basket`, {
                     headers: getAuthHeaders()
                 });
                 if (response.ok) {
@@ -542,7 +541,7 @@
             if (!authToken) return;
             
             try {
-                const response = await fetch(`${BASKET_URL}/basket/item/${productId}`, {
+                const response = await fetch(`${API_GATEWAY_URL}/basket/item/${productId}`, {
                     method: 'DELETE',
                     headers: getAuthHeaders()
                 });
@@ -586,7 +585,7 @@
             checkoutBtn.innerHTML = 'Processing...';
 
             try {
-                const response = await fetch(`${PAYMENT_URL}/pay`, {
+                const response = await fetch(`${API_GATEWAY_URL}/pay`, {
                     method: 'POST',
                     headers: getAuthHeaders(),
                     body: JSON.stringify({})
@@ -597,8 +596,11 @@
                     showSuccess(`Payment successful! Transaction ID: ${result.transactionId}`);
                     addNotification(`Payment completed for ${result.amount} ${result.currency}`, 'success');
                     
-                    basket = { items: [], total: 0 };
-                    displayBasket();
+                    // Wait a bit for basket service to clear the basket
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    
+                    // Reload basket from server to ensure it's cleared
+                    await loadBasket();
                     loadProducts();
                 } else {
                     if (response.status === 401) {

@@ -100,6 +100,27 @@ services:
       - kafka-network
 
 
+  api-gateway:
+    build: ./api-gateway
+    container_name: atlas-api-gateway
+    environment:
+      - PYTHONUNBUFFERED=1
+      - JWT_SECRET_KEY=secret-key-12345
+      - JWT_ALGORITHM=HS256
+      - AUTH_SERVICE_URL=http://auth-service:8005
+      - PRODUCT_SERVICE_URL=http://product-service:8003
+      - BASKET_SERVICE_URL=http://basket-service:8004
+      - PAYMENT_SERVICE_URL=http://payment-service:8001
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth-service
+      - product-service
+      - basket-service
+      - payment-service
+    networks:
+      - kafka-network
+
   auth-service:
     build: ./auth-service
     container_name: atlas-auth
@@ -188,10 +209,7 @@ services:
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
     depends_on:
-      - product-service
-      - basket-service
-      - payment-service
-      - auth-service
+      - api-gateway
 
   database-viewer:
     image: nginx:alpine
