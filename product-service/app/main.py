@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
@@ -75,8 +75,9 @@ async def get_product(product_id: str, db: Session = Depends(get_db)) -> JSONRes
     return JSONResponse(product_data)
 
 @app.post("/products/check-stock")
-async def check_stock(request: Dict[str, Any], db: Session = Depends(get_db)) -> JSONResponse:
-    items = request.get("items", [])
+async def check_stock(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
+    body = await request.json()
+    items = body.get("items", [])
     insufficient_stock = []
     
     for item in items:
@@ -108,13 +109,14 @@ async def check_stock(request: Dict[str, Any], db: Session = Depends(get_db)) ->
     })
 
 @app.post("/products/update-stock")
-async def update_stock(request: Dict[str, Any], db: Session = Depends(get_db)) -> JSONResponse:
+async def update_stock(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
     """Update product stock after successful payment with concurrency control"""
-    items = request.get("items", [])
-    order_id = request.get("orderId")
-    user_id = request.get("userId")
+    body = await request.json()
+    items = body.get("items", [])
+    order_id = body.get("orderId")
+    user_id = body.get("userId")
     
-    print(f"Stock update request: {request}")
+    print(f"Stock update request: {body}")
     print(f"Items to process: {items}")
     
     updated_products = []
