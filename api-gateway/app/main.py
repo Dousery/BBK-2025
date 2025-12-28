@@ -1,4 +1,5 @@
 import os
+import sys
 import jwt
 import httpx
 from typing import Optional, Dict, Any
@@ -8,9 +9,21 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.base import BaseHTTPMiddleware
 
+shared_path = os.path.join(os.path.dirname(__file__), '../../shared')
+if os.path.exists(shared_path):
+    sys.path.insert(0, shared_path)
+else:
+    # In Docker container, shared is at /app/shared
+    sys.path.insert(0, '/app/shared')
+
+from logging_config import setup_logging, get_correlation_id
+from correlation_middleware import CorrelationIDMiddleware
+
 APP_NAME = "api-gateway"
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "secret-key-12345")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+
+logger = setup_logging(APP_NAME, os.getenv("LOG_LEVEL", "INFO"))
 
 # Service URLs
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth-service:8005")
@@ -24,10 +37,12 @@ PUBLIC_PATHS = [
     "/auth/register",
     "/auth/login",
     "/auth/verify",
-    "/products",  # Product listing is public
+    "/products",  
 ]
 
 app = FastAPI(title="Atlas E-commerce API Gateway")
+
+app.add_middleware(CorrelationIDMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,10 +80,7 @@ def is_public_path(path: str) -> bool:
     return False
 
 
-async def get_current_user_id(
-    request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
-) -> Optional[str]:
+async def get_current_user_id(request: Request) -> Optional[str]:
     """Get user_id from JWT token if authentication is required"""
     path = request.url.path
     
@@ -77,13 +89,14 @@ async def get_current_user_id(
         return None
     
     # Protected paths require authentication
-    if not credentials:
+    authorization = request.headers.get("Authorization")
+    if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required"
         )
     
-    token = credentials.credentials
+    token = authorization.replace("Bearer ", "")
     payload = verify_token(token)
     user_id = payload.get("user_id")
     
@@ -98,32 +111,47 @@ async def get_current_user_id(
 
 @app.get("/health")
 async def health() -> Dict[str, str]:
+    logger.debug("Health check requested")
     return {"status": "ok", "service": APP_NAME}
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def gateway(request: Request, path: str):
     """API Gateway - routes requests to appropriate microservices"""
+    correlation_id = get_correlation_id()
+    
+    logger.info("Request received", extra={
+        "extra_fields": {
+            "method": request.method,
+            "path": path,
+            "client_ip": request.client.host if request.client else None
+        }
+    })
     
     # Determine target service based on path
     if path.startswith("auth/"):
-        # /auth/login -> auth-service:8005/login
-        # /auth/register -> auth-service:8005/register
-        # /auth/me -> auth-service:8005/me
         service_path = path.replace("auth/", "")
         target_url = f"{AUTH_SERVICE_URL}/{service_path}"
+        target_service = "auth-service"
+        
     elif path.startswith("products"):
-        # /products -> product-service:8003/products
-        # /products/{id} -> product-service:8003/products/{id}
         target_url = f"{PRODUCT_SERVICE_URL}/{path}"
+        target_service = "product-service"
+
     elif path.startswith("basket"):
-        # /basket -> basket-service:8004/basket
-        # /basket/add -> basket-service:8004/basket/add
         target_url = f"{BASKET_SERVICE_URL}/{path}"
+        target_service = "basket-service"
+
     elif path.startswith("pay"):
-        # /pay -> payment-service:8001/pay
         target_url = f"{PAYMENT_SERVICE_URL}/{path}"
+        target_service = "payment-service"
+        
     else:
+        logger.warning("Unknown route", extra={
+            "extra_fields": {
+                "path": path
+            }
+        })
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown route: {path}"
@@ -132,8 +160,13 @@ async def gateway(request: Request, path: str):
     # Check authentication for protected routes
     try:
         user_id = await get_current_user_id(request)
-    except HTTPException:
-        # If authentication fails, return the error
+    except HTTPException as e:
+        logger.warning("Authentication failed", extra={
+            "extra_fields": {
+                "detail": e.detail,
+                "status_code": e.status_code
+            }
+        })
         raise
     
     # Get request body if exists
@@ -147,12 +180,22 @@ async def gateway(request: Request, path: str):
     # Get headers
     headers = dict(request.headers)
     
+    # Add correlation ID to forwarded request
+    if correlation_id:
+        headers["X-Correlation-ID"] = correlation_id
+    
     # Remove host header to avoid conflicts
     headers.pop("host", None)
     headers.pop("content-length", None)
     
     # Forward request to target service
     try:
+        logger.debug("Forwarding request", extra={
+            "extra_fields": {
+                "target_service": target_service,
+                "target_url": target_url
+            }
+        })
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.request(
                 method=request.method,
@@ -162,6 +205,13 @@ async def gateway(request: Request, path: str):
                 params=dict(request.query_params)
             )
             
+            logger.info("Response received", extra={
+                "extra_fields": {
+                    "target_service": target_service,
+                    "status_code": response.status_code
+                }
+            })
+            
             # Return response
             return Response(
                 content=response.content,
@@ -170,6 +220,12 @@ async def gateway(request: Request, path: str):
                 media_type=response.headers.get("content-type", "application/json")
             )
     except httpx.RequestError as e:
+        logger.error("Service unavailable", extra={
+            "extra_fields": {
+                "target_service": target_service,
+                "error": str(e)
+            }
+        }, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Service unavailable: {str(e)}"
