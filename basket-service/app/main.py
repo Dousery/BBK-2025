@@ -2,7 +2,7 @@ import json
 import os
 import httpx
 from typing import Dict, List, Any, Optional
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -81,14 +81,25 @@ async def get_basket(user_id: str = Depends(get_current_user_id)) -> JSONRespons
 
 @app.post("/basket/add")
 async def add_to_basket(
-    request: Dict[str, Any],
+    request: Request,
     user_id: str = Depends(get_current_user_id)
 ) -> JSONResponse:
     """Add item to basket - requires authentication"""
-    product_id = request.get("productId")
-    quantity = request.get("quantity", 1)
+    print(f"[BASKET] Add to basket called for user: {user_id}")
+    try:
+        body = await request.json()
+        print(f"[BASKET] Request body: {body}")
+    except Exception as e:
+        print(f"[BASKET] Error parsing request body: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid request body: {str(e)}")
+    
+    product_id = body.get("productId")
+    quantity = body.get("quantity", 1)
+    
+    print(f"[BASKET] Product ID: {product_id}, Quantity: {quantity}")
     
     if not product_id:
+        print(f"[BASKET] Error: productId is required")
         raise HTTPException(status_code=400, detail="productId is required")
     
     basket_key = f"basket:{user_id}"
@@ -136,6 +147,7 @@ async def add_to_basket(
     
     # Save to Redis
     redis_client.setex(basket_key, 3600, json.dumps(basket))  # 1 hour TTL
+    print(f"[BASKET] Basket saved to Redis. Key: {basket_key}, Items: {len(basket['items'])}")
     
     return JSONResponse(basket)
 
